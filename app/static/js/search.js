@@ -6,22 +6,28 @@ async function loadSettings() {
 }
 
 async function syncRemoteFavorites({ silent = false } = {}) {
-    if (!hasDanbooruAuth()) {
+    if (!hasRemoteFavoriteAuth()) {
         state.favoriteSync.truncated = false;
         updateFavoritesCount();
         return;
     }
 
     try {
-        const data = await api("/api/danbooru/favorites/sync");
+        const source = currentSource();
+        const data = await api(`/api/danbooru/favorites/sync?source=${encodeURIComponent(source)}`);
         const nextFavorites = {};
         for (const postId of data.favorites || []) {
             const key = String(postId);
-            nextFavorites[key] = state.remoteFavorites[key] || { id: key, _saved_at: new Date(0).toISOString() };
+            const currentStore = source === "gelbooru" ? state.gelbooruRemoteFavorites : state.remoteFavorites;
+            nextFavorites[key] = currentStore[key] || { id: key, _saved_at: new Date(0).toISOString() };
         }
-        state.remoteFavorites = nextFavorites;
+        if (source === "gelbooru") {
+            state.gelbooruRemoteFavorites = nextFavorites;
+        } else {
+            state.remoteFavorites = nextFavorites;
+        }
         state.favoriteSync.truncated = Boolean(data.truncated);
-        saveFavoriteStore("remote");
+        saveFavoriteStore(source === "gelbooru" ? "gelbooruRemote" : "remote");
         if (state.favoritesOnly && !state.loading) {
             renderResults();
         }
@@ -29,7 +35,7 @@ async function syncRemoteFavorites({ silent = false } = {}) {
         state.favoriteSync.truncated = false;
         updateFavoritesCount();
         if (!silent) {
-            notify(`同步 Danbooru 收藏夹失败: ${error.message}`, "error");
+            notify(`同步 ${currentSourceLabel()} 收藏夹失败: ${error.message}`, "error");
         }
     }
 }
@@ -39,6 +45,10 @@ async function saveSettings(event) {
     const payload = {
         danbooru_username: elements.settingsUsername.value.trim(),
         danbooru_api_key: elements.settingsApiKey.value.trim(),
+        gelbooru_user_id: elements.settingsGelbooruUserId.value.trim(),
+        gelbooru_api_key: elements.settingsGelbooruApiKey.value.trim(),
+        source_site: currentSource(),
+        default_source_site: normalizeSourceKey(elements.settingsDefaultSourceSite.value),
         filter_tags: elements.settingsFilterTags.value
             .split(/[\n,]/)
             .map((tag) => tag.trim())
@@ -95,7 +105,8 @@ function rerenderAllPrompts() {
 }
 
 function getFavoritesArray() {
-    return Object.values(state.localFavorites).sort((left, right) => {
+    const store = currentSource() === "gelbooru" ? state.gelbooruLocalFavorites : state.localFavorites;
+    return Object.values(store).sort((left, right) => {
         return String(right._saved_at || "").localeCompare(String(left._saved_at || ""));
     });
 }
@@ -160,18 +171,18 @@ async function runSearch({ resetPage = false, forceReload = false } = {}) {
     updateSearchControlsState();
     saveUiPrefs();
 
-    if (state.favoritesOnly && !hasDanbooruAuth()) {
+    if (state.favoritesOnly && !hasRemoteFavoriteAuth()) {
         filterFavoritesLocally();
         renderResults();
         return;
     }
 
     const query = buildOnlineQueryContext();
-    const resultLabel = state.favoritesOnly && hasDanbooruAuth() ? "云端收藏" : "在线结果";
+    const resultLabel = state.favoritesOnly && hasRemoteFavoriteAuth() ? `${currentSourceLabel()}云端收藏` : `${currentSourceLabel()}在线结果`;
 
     state.loading = true;
     elements.refreshBtn.classList.add("is-active");
-    elements.searchStatus.textContent = state.favoritesOnly && hasDanbooruAuth() ? "同步收藏夹中..." : "检索中...";
+    elements.searchStatus.textContent = state.favoritesOnly && hasRemoteFavoriteAuth() ? "同步收藏夹中..." : "检索中...";
     updateSearchControlsState();
 
     try {
@@ -313,19 +324,25 @@ function favoriteSnapshot(post, store = getActiveFavoriteStore()) {
     };
 }
 
-function applyFavoritePost(post, { remote = hasDanbooruAuth() } = {}) {
+function applyFavoritePost(post, { remote = hasRemoteFavoriteAuth() } = {}) {
     const key = String(post.id);
-    const store = remote ? state.remoteFavorites : state.localFavorites;
+    const source = post.source_site || currentSource();
+    const store = source === "gelbooru"
+        ? (remote ? state.gelbooruRemoteFavorites : state.gelbooruLocalFavorites)
+        : (remote ? state.remoteFavorites : state.localFavorites);
     store[key] = favoriteSnapshot(post, store);
     state.originalPosts[key] = state.originalPosts[key] || clonePost(post);
-    saveFavoriteStore(remote ? "remote" : "local");
+    saveFavoriteStore(source === "gelbooru" ? (remote ? "gelbooruRemote" : "gelbooruLocal") : (remote ? "remote" : "local"));
 }
 
-function removeFavoritePost(postId, { remote = hasDanbooruAuth() } = {}) {
+function removeFavoritePost(postId, { remote = hasRemoteFavoriteAuth() } = {}) {
     const key = String(postId);
-    const store = remote ? state.remoteFavorites : state.localFavorites;
+    const source = currentSource();
+    const store = source === "gelbooru"
+        ? (remote ? state.gelbooruRemoteFavorites : state.gelbooruLocalFavorites)
+        : (remote ? state.remoteFavorites : state.localFavorites);
     delete store[key];
-    saveFavoriteStore(remote ? "remote" : "local");
+    saveFavoriteStore(source === "gelbooru" ? (remote ? "gelbooruRemote" : "gelbooruLocal") : (remote ? "remote" : "local"));
 }
 
 async function toggleFavoritePost(postId) {
@@ -336,19 +353,19 @@ async function toggleFavoritePost(postId) {
     }
 
     const isFavorited = Boolean(getActiveFavoriteStore()[key]);
-    if (hasDanbooruAuth()) {
+    if (hasRemoteFavoriteAuth()) {
         const endpoint = isFavorited ? "/api/danbooru/favorites/remove" : "/api/danbooru/favorites/add";
         await api(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ post_id: Number(postId) }),
+            body: JSON.stringify({ post_id: Number(postId), source: currentSource() }),
         });
         if (isFavorited) {
             removeFavoritePost(postId, { remote: true });
-            notify(`已从 Danbooru 收藏移除 #${postId}`);
+            notify(`已从 ${currentSourceLabel()} 收藏移除 #${postId}`);
         } else {
             applyFavoritePost(post, { remote: true });
-            notify(`已同步收藏到 Danbooru #${postId}`, "success");
+            notify(`已同步收藏到 ${currentSourceLabel()} #${postId}`, "success");
         }
     } else {
         if (isFavorited) {
@@ -356,11 +373,11 @@ async function toggleFavoritePost(postId) {
             notify(`已移除本地收藏 #${postId}`);
         } else {
             applyFavoritePost(post, { remote: false });
-            notify(`未配置 Danbooru 账号，已收藏到本地 #${postId}`, "success");
+            notify(`未配置 ${currentSourceLabel()} 账号，已收藏到本地 #${postId}`, "success");
         }
     }
 
-    if (state.favoritesOnly && hasDanbooruAuth()) {
+    if (state.favoritesOnly && hasRemoteFavoriteAuth()) {
         state.onlineSearchCache = createEmptyOnlineSearchCache();
         await runSearch({ forceReload: true });
         return;
@@ -381,6 +398,16 @@ function syncFavoriteSnapshot(post) {
     if (state.remoteFavorites[key]) {
         state.remoteFavorites[key] = favoriteSnapshot(post, state.remoteFavorites);
         saveFavoriteStore("remote");
+        updated = true;
+    }
+    if (state.gelbooruLocalFavorites[key]) {
+        state.gelbooruLocalFavorites[key] = favoriteSnapshot(post, state.gelbooruLocalFavorites);
+        saveFavoriteStore("gelbooruLocal");
+        updated = true;
+    }
+    if (state.gelbooruRemoteFavorites[key]) {
+        state.gelbooruRemoteFavorites[key] = favoriteSnapshot(post, state.gelbooruRemoteFavorites);
+        saveFavoriteStore("gelbooruRemote");
         updated = true;
     }
     return updated;

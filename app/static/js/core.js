@@ -12,7 +12,27 @@ const RATING_API_TO_VALUE = {
     q: "questionable",
     e: "explicit",
 };
-const ALLOWED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif"];
+const SOURCE_META = {
+    danbooru: {
+        label: "Danbooru",
+        badge: "D站",
+        brandTitle: "Danbooru Gallery",
+        brandKicker: "D站画廊",
+        documentTitle: "Danbooru Gallery Standalone",
+        favoriteToken: "ordfav",
+        rankingToken: "order:rank",
+    },
+    gelbooru: {
+        label: "Gelbooru",
+        badge: "G站",
+        brandTitle: "Gelbooru Gallery",
+        brandKicker: "G站画廊",
+        documentTitle: "Gelbooru Gallery Standalone",
+        favoriteToken: "fav",
+        rankingToken: "sort:score",
+    },
+};
+const ALLOWED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"];
 const ONLINE_BATCH_MIN = 30;
 const ONLINE_BATCH_MAX = 80;
 const ONLINE_BATCH_MULTIPLIER = 3;
@@ -33,6 +53,8 @@ const DANBOORU_CATEGORY_MAP = {
 const STORAGE_KEYS = {
     localFavorites: "danbooru-standalone-favorites",
     remoteFavorites: "danbooru-standalone-remote-favorites",
+    gelbooruLocalFavorites: "gelbooru-standalone-favorites",
+    gelbooruRemoteFavorites: "gelbooru-standalone-remote-favorites",
     uiPrefs: "danbooru-standalone-ui",
 };
 const DEFAULT_UI_PREFS = {
@@ -40,6 +62,7 @@ const DEFAULT_UI_PREFS = {
     ratingValues: [...RATING_VALUES],
     limit: 20,
     page: 1,
+    gelbooruRecentDays: "7",
     replaceUnderscores: true,
     escapeBrackets: true,
 };
@@ -60,12 +83,16 @@ const state = {
     favoritesOnly: false,
     localFavorites: loadStoredFavorites(STORAGE_KEYS.localFavorites),
     remoteFavorites: loadStoredFavorites(STORAGE_KEYS.remoteFavorites),
+    gelbooruLocalFavorites: loadStoredFavorites(STORAGE_KEYS.gelbooruLocalFavorites),
+    gelbooruRemoteFavorites: loadStoredFavorites(STORAGE_KEYS.gelbooruRemoteFavorites),
     uiPrefs: loadUiPrefs(),
     autocompleteCache: {},
     loading: false,
     favoriteSync: {
         hasAuth: false,
         username: "",
+        gelbooruHasAuth: false,
+        gelbooruUserId: "",
         truncated: false,
     },
     appExit: {
@@ -83,6 +110,8 @@ const state = {
 };
 
 const elements = {
+    brandKicker: document.getElementById("brand-kicker"),
+    brandTitle: document.getElementById("brand-title"),
     sourceBadge: document.getElementById("source-badge"),
     searchStatus: document.getElementById("search-status"),
     favoritesCountBtn: document.getElementById("favorites-count-btn"),
@@ -91,6 +120,7 @@ const elements = {
     searchTags: document.getElementById("search-tags"),
     clearSearchBtn: document.getElementById("clear-search-btn"),
     searchAutocomplete: document.getElementById("search-autocomplete"),
+    sourceToggle: document.getElementById("source-toggle"),
     rankingToggle: document.getElementById("ranking-toggle"),
     favoritesToggle: document.getElementById("favorites-toggle"),
     ratingDropdownBtn: document.getElementById("rating-dropdown-btn"),
@@ -104,6 +134,8 @@ const elements = {
     openLibraryBtn: document.getElementById("open-library-btn"),
     openSettingsBtn: document.getElementById("open-settings-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
+    gelbooruRecencyField: document.getElementById("gelbooru-recency-field"),
+    gelbooruRecency: document.getElementById("gelbooru-recency"),
     searchLimit: document.getElementById("search-limit"),
     searchPage: document.getElementById("search-page"),
     prevPageBtn: document.getElementById("prev-page-btn"),
@@ -144,6 +176,9 @@ const elements = {
     cancelSettingsBtn: document.getElementById("cancel-settings-btn"),
     settingsUsername: document.getElementById("settings-username"),
     settingsApiKey: document.getElementById("settings-api-key"),
+    settingsGelbooruUserId: document.getElementById("settings-gelbooru-user-id"),
+    settingsGelbooruApiKey: document.getElementById("settings-gelbooru-api-key"),
+    settingsDefaultSourceSite: document.getElementById("settings-default-source-site"),
     settingsFilterTags: document.getElementById("settings-filter-tags"),
     settingsFilterEnabled: document.getElementById("settings-filter-enabled"),
     settingsHighQualityPreviews: document.getElementById("settings-high-quality-previews"),
@@ -236,6 +271,9 @@ function loadUiPrefs() {
                 parsed.ratingValues = [...RATING_VALUES];
             }
         }
+        if (!Object.prototype.hasOwnProperty.call(parsed, "gelbooruRecentDays")) {
+            parsed.gelbooruRecentDays = DEFAULT_UI_PREFS.gelbooruRecentDays;
+        }
         return { ...DEFAULT_UI_PREFS, ...parsed };
     } catch {
         return { ...DEFAULT_UI_PREFS };
@@ -250,6 +288,7 @@ function saveUiPrefs() {
             ratingValues: getSelectedRatingValues(),
             limit: Number(elements.searchLimit.value) || 20,
             page: Number(elements.searchPage.value) || 1,
+            gelbooruRecentDays: elements.gelbooruRecency.value || "all",
             replaceUnderscores: elements.fmtReplaceUnderscores.checked,
             escapeBrackets: elements.fmtEscapeBrackets.checked,
         }),
@@ -276,23 +315,79 @@ function hasDanbooruAuth() {
     return Boolean(state.favoriteSync.hasAuth && state.favoriteSync.username);
 }
 
+function hasGelbooruAuth() {
+    return Boolean(state.favoriteSync.gelbooruHasAuth && state.favoriteSync.gelbooruUserId);
+}
+
+function currentSource() {
+    return normalizeSourceKey(state.settings?.source_site);
+}
+
+function currentSourceLabel() {
+    return SOURCE_META[currentSource()]?.label || "Danbooru";
+}
+
+function normalizeSourceKey(value) {
+    const source = String(value || "danbooru").toLowerCase();
+    return SOURCE_META[source] ? source : "danbooru";
+}
+
+function getRankingToken(source = currentSource()) {
+    return SOURCE_META[normalizeSourceKey(source)]?.rankingToken || "order:rank";
+}
+
+function getAllRankingTokens() {
+    return Object.values(SOURCE_META).map((item) => item.rankingToken).filter(Boolean);
+}
+
+function hasRemoteFavoriteAuth() {
+    return currentSource() === "gelbooru" ? hasGelbooruAuth() : hasDanbooruAuth();
+}
+
+function currentFavoriteToken() {
+    if (currentSource() === "gelbooru") {
+        return hasGelbooruAuth() ? `fav:${state.favoriteSync.gelbooruUserId}` : "";
+    }
+    return hasDanbooruAuth() ? `ordfav:${state.favoriteSync.username}` : "";
+}
+
 function getActiveFavoriteStore() {
+    if (currentSource() === "gelbooru") {
+        return hasGelbooruAuth() ? state.gelbooruRemoteFavorites : state.gelbooruLocalFavorites;
+    }
     return hasDanbooruAuth() ? state.remoteFavorites : state.localFavorites;
 }
 
 function getAnyFavoriteStore(postId) {
     const key = String(postId);
+    if (currentSource() === "gelbooru") {
+        return state.gelbooruRemoteFavorites[key] || state.gelbooruLocalFavorites[key] || null;
+    }
     return state.remoteFavorites[key] || state.localFavorites[key] || null;
 }
 
 function saveFavoriteStore(kind) {
-    const storageKey = kind === "remote" ? STORAGE_KEYS.remoteFavorites : STORAGE_KEYS.localFavorites;
-    const store = kind === "remote" ? state.remoteFavorites : state.localFavorites;
+    const storageKey = {
+        local: STORAGE_KEYS.localFavorites,
+        remote: STORAGE_KEYS.remoteFavorites,
+        gelbooruLocal: STORAGE_KEYS.gelbooruLocalFavorites,
+        gelbooruRemote: STORAGE_KEYS.gelbooruRemoteFavorites,
+    }[kind];
+    const store = {
+        local: state.localFavorites,
+        remote: state.remoteFavorites,
+        gelbooruLocal: state.gelbooruLocalFavorites,
+        gelbooruRemote: state.gelbooruRemoteFavorites,
+    }[kind];
     window.localStorage.setItem(storageKey, JSON.stringify(store));
     updateFavoritesCount();
 }
 
 function saveActiveFavoriteStore() {
+    if (currentSource() === "gelbooru") {
+        saveFavoriteStore(hasGelbooruAuth() ? "gelbooruRemote" : "gelbooruLocal");
+        return;
+    }
     saveFavoriteStore(hasDanbooruAuth() ? "remote" : "local");
 }
 
@@ -314,7 +409,7 @@ function createEmptyOnlineSearchCache(key = "") {
 
 function updateFavoritesCount() {
     const count = Object.keys(getActiveFavoriteStore()).length;
-    const suffix = hasDanbooruAuth() && state.favoriteSync.truncated ? "+" : "";
+    const suffix = hasRemoteFavoriteAuth() && state.favoriteSync.truncated ? "+" : "";
     elements.favoritesCountBtn.textContent = `收藏 ${count}${suffix}`;
 }
 
@@ -502,11 +597,20 @@ function convertSearchValueToApiTags(value) {
 
 function buildEffectiveSearchTags(value) {
     const tokens = tokenizeCommaInput(value).map(normalizeSearchTag);
-    if (state.favoritesOnly && hasDanbooruAuth()) {
-        const favoriteToken = `ordfav:${state.favoriteSync.username}`;
+    if (state.favoritesOnly && hasRemoteFavoriteAuth()) {
+        const favoriteToken = currentFavoriteToken();
         if (!tokens.includes(favoriteToken)) {
             tokens.push(favoriteToken);
         }
+    }
+    const gelbooruRecentDays = String(elements.gelbooruRecency.value || "all");
+    if (
+        currentSource() === "gelbooru"
+        && gelbooruRecentDays !== "all"
+        && tokens.includes(getRankingToken("gelbooru"))
+        && !tokens.some((token) => token.startsWith("recent:") || token.startsWith("id:"))
+    ) {
+        tokens.push(`recent:${gelbooruRecentDays}d`);
     }
     return tokens.join(" ");
 }
@@ -516,6 +620,7 @@ function normalizeKeyValues(values = []) {
 }
 
 function buildOnlineQueryContext() {
+    const source = currentSource();
     const limit = Math.max(1, Math.min(100, Number(elements.searchLimit.value) || 20));
     const page = Math.max(1, Number(elements.searchPage.value) || 1);
     const tags = buildEffectiveSearchTags(elements.searchTags.value);
@@ -525,17 +630,19 @@ function buildOnlineQueryContext() {
     return {
         key: JSON.stringify({
             tags,
+            source,
             selectedRatings: normalizeKeyValues(selectedRatings),
             serverRating,
             blacklist,
         }),
+        source,
         tags,
         selectedRatings,
         serverRating,
         limit,
         page,
-        batchSize: Math.min(ONLINE_BATCH_MAX, Math.max(ONLINE_BATCH_MIN, limit * ONLINE_BATCH_MULTIPLIER)),
-        supportsCursor: canUseCursorPagination(tags),
+        batchSize: source === "gelbooru" ? Math.min(20, Math.max(limit, 12)) : Math.min(ONLINE_BATCH_MAX, Math.max(ONLINE_BATCH_MIN, limit * ONLINE_BATCH_MULTIPLIER)),
+        supportsCursor: source === "danbooru" && canUseCursorPagination(tags),
     };
 }
 
@@ -574,6 +681,19 @@ function getCategoryLabel(category) {
 function categoryFromApiValue(value) {
     if (typeof value === "string" && CATEGORY_META[value]) {
         return value;
+    }
+    if (typeof value === "string") {
+        const normalized = value.toLowerCase();
+        const map = {
+            tag: "general",
+            general: "general",
+            artist: "artist",
+            copyright: "copyright",
+            character: "character",
+            metadata: "meta",
+            meta: "meta",
+        };
+        return map[normalized] || "general";
     }
     return DANBOORU_CATEGORY_MAP[Number(value)] || "general";
 }
@@ -777,6 +897,9 @@ function syncToolbarFromSettings() {
 function syncSettingsForm() {
     elements.settingsUsername.value = state.settings?.danbooru_username || "";
     elements.settingsApiKey.value = state.settings?.danbooru_api_key || "";
+    elements.settingsGelbooruUserId.value = state.settings?.gelbooru_user_id || "";
+    elements.settingsGelbooruApiKey.value = state.settings?.gelbooru_api_key || "";
+    elements.settingsDefaultSourceSite.value = normalizeSourceKey(state.settings?.default_source_site);
     elements.settingsFilterTags.value = (state.settings?.filter_tags || []).join(", ");
     elements.settingsFilterEnabled.checked = Boolean(state.settings?.filter_enabled);
     elements.settingsHighQualityPreviews.checked = Boolean(state.settings?.high_quality_previews);
@@ -790,8 +913,12 @@ function syncSettingsForm() {
 function applyFavoriteSyncSettings() {
     const username = String(state.settings?.danbooru_username || "").trim();
     const apiKey = String(state.settings?.danbooru_api_key || "").trim();
+    const gelbooruUserId = String(state.settings?.gelbooru_user_id || "").trim();
+    const gelbooruApiKey = String(state.settings?.gelbooru_api_key || "").trim();
     state.favoriteSync.hasAuth = Boolean(username && apiKey);
     state.favoriteSync.username = username;
+    state.favoriteSync.gelbooruHasAuth = Boolean(gelbooruUserId && gelbooruApiKey);
+    state.favoriteSync.gelbooruUserId = gelbooruUserId;
     if (!state.favoriteSync.hasAuth) {
         state.favoriteSync.truncated = false;
     }
@@ -803,20 +930,35 @@ function syncUiPrefsToControls() {
     applySelectedRatingValues(state.uiPrefs.ratingValues);
     elements.searchLimit.value = String(state.uiPrefs.limit || 20);
     elements.searchPage.value = String(state.uiPrefs.page || 1);
+    elements.gelbooruRecency.value = state.uiPrefs.gelbooruRecentDays || "all";
     elements.fmtReplaceUnderscores.checked = Boolean(state.uiPrefs.replaceUnderscores);
     elements.fmtEscapeBrackets.checked = Boolean(state.uiPrefs.escapeBrackets);
 }
 
 function updateSearchControlsState() {
     const tokens = tokenizeCommaInput(elements.searchTags.value);
-    const hasRanking = tokens.includes("order:rank");
+    const source = currentSource();
+    const hasRanking = tokens.includes(getRankingToken(source));
     const page = Math.max(1, Number(elements.searchPage.value) || 1);
+    const sourceMeta = SOURCE_META[source] || SOURCE_META.danbooru;
+    document.body.dataset.source = source;
+    document.title = sourceMeta.documentTitle;
+    elements.brandTitle.textContent = sourceMeta.brandTitle;
+    elements.brandKicker.textContent = sourceMeta.brandKicker;
+    elements.sourceToggle.textContent = currentSourceLabel();
+    elements.sourceToggle.dataset.source = source;
+    elements.sourceToggle.classList.toggle("is-gelbooru", source === "gelbooru");
+    elements.rankingToggle.disabled = state.loading;
+    elements.rankingToggle.title = source === "gelbooru" ? "Gelbooru 使用 sort:score 按分数排序" : "Danbooru 使用 order:rank 排行榜";
     elements.rankingToggle.classList.toggle("is-active", hasRanking);
+    elements.gelbooruRecencyField.classList.toggle("hidden", source !== "gelbooru");
+    elements.gelbooruRecency.disabled = state.loading || source !== "gelbooru" || !hasRanking;
     elements.favoritesToggle.classList.toggle("is-active", state.favoritesOnly);
     elements.clearSearchBtn.classList.toggle("hidden", !elements.searchTags.value.trim());
+    const sourcePrefix = SOURCE_META[source]?.badge || "图库";
     elements.sourceBadge.textContent = state.favoritesOnly
-        ? (hasDanbooruAuth() ? "云端收藏" : "本地收藏")
-        : "在线结果";
+        ? `${sourcePrefix}${hasRemoteFavoriteAuth() ? "云端收藏" : "本地收藏"}`
+        : `${sourcePrefix}在线结果`;
     elements.searchLimit.disabled = state.loading;
     elements.searchPage.disabled = state.loading;
     elements.prevPageBtn.disabled = state.loading || page <= 1;
@@ -869,6 +1011,7 @@ function syncOnlineCache(query, forceReload = false) {
 
 async function fetchOnlineBatch(query, serverPage) {
     const params = new URLSearchParams({
+        source: query.source,
         tags: query.tags,
         rating: query.serverRating,
         limit: String(query.batchSize),
@@ -996,9 +1139,10 @@ function attachAutocomplete(input, container, mode) {
 
         timer = window.setTimeout(async () => {
             const limit = Math.max(5, Number(state.settings?.autocomplete_max_results || 12));
+            const sourceParam = `&source=${encodeURIComponent(currentSource())}`;
             const endpoint = /[\u4e00-\u9fff]/.test(raw)
-                ? `/api/tags/search-chinese?query=${encodeURIComponent(raw)}&limit=${limit}`
-                : `/api/tags/autocomplete?query=${encodeURIComponent(raw)}&limit=${limit}`;
+                ? `/api/tags/search-chinese?query=${encodeURIComponent(raw)}&limit=${limit}${sourceParam}`
+                : `/api/tags/autocomplete?query=${encodeURIComponent(raw)}&limit=${limit}${sourceParam}`;
             try {
                 const data = await api(endpoint);
                 fillAutocomplete(data.results || data, input, container, mode);

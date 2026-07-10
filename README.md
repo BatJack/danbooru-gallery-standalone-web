@@ -28,21 +28,22 @@ The goal of this version is to keep the practical Danbooru browsing and prompt e
 
 ### Features
 
-- Danbooru image search with gallery-style browsing
+- Danbooru / Gelbooru image search with gallery-style browsing
 - Tag autocomplete with Chinese translation support
 - Prompt editing by tag category
 - Prompt cleaning and formatting tools
 - Clipboard copy for final prompt output
 - Local prompt library with import/export
 - Local one-click startup for Windows
-- Optional Danbooru account favorite sync
-- Local favorite fallback when no Danbooru account is configured
+- Optional Danbooru / Gelbooru account favorite sync
+- Local favorite fallback when no account is configured
+- Gelbooru score ranking with recent-range filtering
 
 ### What This Version Focuses On
 
 This standalone version currently focuses on the parts that are useful outside ComfyUI:
 
-- searching Danbooru posts
+- searching Danbooru / Gelbooru posts
 - selecting and editing tags
 - cleaning and formatting prompts
 - maintaining a reusable prompt library
@@ -107,6 +108,7 @@ The project is already structured around a single local entrypoint, so packaging
 - This project is derived from the original MIT-licensed repository above.
 - Runtime data such as settings, local favorites, logs, and preview caches are generated under `data/` and `logs/`.
 - No personal account settings are committed in this public repository.
+- Gelbooru API mode requires the numeric User ID and API Key from the site's API Access Credentials page.
 
 ### License
 
@@ -130,7 +132,7 @@ MIT. See [LICENSE](LICENSE).
 
 ### 当前功能
 
-- Danbooru 图片检索与瀑布流浏览
+- Danbooru / Gelbooru 图片检索与瀑布流浏览
 - tag 自动补全与中文翻译
 - 按分类编辑标签
 - Prompt 清洗与格式化
@@ -138,8 +140,9 @@ MIT. See [LICENSE](LICENSE).
 - 本地 Prompt 词库管理
 - 词库导入 / 导出
 - Windows 一键启动
-- Danbooru 账号收藏同步
+- Danbooru / Gelbooru 账号收藏同步
 - 未配置账号时的本地收藏兜底
+- Gelbooru 按分数排序，并支持近期范围筛选
 
 ### 这一版的定位
 

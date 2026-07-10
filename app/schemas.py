@@ -26,6 +26,7 @@ class TranslateBatchRequest(BaseModel):
 
 class FavoriteActionRequest(BaseModel):
     post_id: int
+    source: str = "danbooru"
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -36,6 +37,11 @@ class SettingsUpdateRequest(BaseModel):
     selected_categories: list[str] | None = None
     danbooru_username: str | None = None
     danbooru_api_key: str | None = None
+    gelbooru_user_id: str | None = None
+    gelbooru_api_key: str | None = None
+    source_site: str | None = None
+    default_source_site: str | None = None
+    gelbooru_display_all_site_content: bool | None = None
     autocomplete_max_results: int | None = None
     high_quality_previews: bool | None = None
 

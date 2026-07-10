@@ -56,6 +56,11 @@ DEFAULT_SETTINGS = {
     "selected_categories": ["copyright", "character", "general"],
     "danbooru_username": "",
     "danbooru_api_key": "",
+    "gelbooru_user_id": "",
+    "gelbooru_api_key": "",
+    "source_site": "danbooru",
+    "default_source_site": "danbooru",
+    "gelbooru_display_all_site_content": False,
     "autocomplete_max_results": 20,
     "high_quality_previews": True,
 }

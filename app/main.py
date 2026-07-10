@@ -22,7 +22,7 @@ from .schemas import (
     SettingsUpdateRequest,
     TranslateBatchRequest,
 )
-from .services.danbooru_service import DanbooruFavoriteError, DanbooruService, danbooru_request
+from .services.danbooru_service import GELBOORU_BROWSER_HEADERS, DanbooruFavoriteError, DanbooruService, danbooru_request
 from .services.prompt_clean_service import PromptCleanService
 from .services.prompt_library_service import PromptLibraryService
 from .services.settings_service import SettingsService
@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 ensure_seed_data()
 
 ALLOWED_DANBOORU_IMAGE_HOSTS = {"cdn.donmai.us", "danbooru.donmai.us"}
+ALLOWED_GELBOORU_IMAGE_HOSTS = {"gelbooru.com"}
 IMAGE_PROXY_CONCURRENCY = 2
 IMAGE_PROXY_MEDIA_PREFIXES = ("image/", "video/")
 IMAGE_PROXY_ALLOWED_MEDIA_TYPES = {"application/octet-stream"}
@@ -97,10 +98,18 @@ def danbooru_service(request_app: FastAPI) -> DanbooruService:
     return request_app.state.danbooru_service
 
 
+def _image_proxy_headers(image_url: str) -> dict[str, str]:
+    host = (urlparse(image_url).hostname or "").lower()
+    if host == "gelbooru.com" or host.endswith(".gelbooru.com"):
+        return {**GELBOORU_BROWSER_HEADERS, "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"}
+    return {}
+
+
 def _fetch_remote_image(image_url: str) -> tuple[bytes, str, str]:
     response = danbooru_request(
         "GET",
         image_url,
+        headers=_image_proxy_headers(image_url),
         timeout=20,
     )
     response.raise_for_status()
@@ -151,6 +160,7 @@ async def get_posts(
     page: int = 1,
     rating: str = "all",
     before_id: str = "",
+    source: str = "danbooru",
 ) -> list[dict]:
     return app.state.danbooru_service.search_posts(
         tags=tags,
@@ -158,6 +168,7 @@ async def get_posts(
         page=page,
         rating=rating,
         before_id=before_id,
+        source=source,
     )
 
 
@@ -167,9 +178,9 @@ async def get_danbooru_auth_status() -> dict:
 
 
 @app.get("/api/danbooru/favorites/sync")
-async def sync_danbooru_favorites() -> dict:
+async def sync_danbooru_favorites(source: str = "danbooru") -> dict:
     try:
-        return app.state.danbooru_service.sync_favorite_ids()
+        return app.state.danbooru_service.sync_favorite_ids(source=source)
     except DanbooruFavoriteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except requests.RequestException as exc:
@@ -179,7 +190,7 @@ async def sync_danbooru_favorites() -> dict:
 @app.post("/api/danbooru/favorites/add")
 async def add_danbooru_favorite(payload: FavoriteActionRequest) -> dict:
     try:
-        return app.state.danbooru_service.add_favorite(payload.post_id)
+        return app.state.danbooru_service.add_favorite(payload.post_id, source=payload.source)
     except DanbooruFavoriteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except requests.RequestException as exc:
@@ -189,7 +200,7 @@ async def add_danbooru_favorite(payload: FavoriteActionRequest) -> dict:
 @app.post("/api/danbooru/favorites/remove")
 async def remove_danbooru_favorite(payload: FavoriteActionRequest) -> dict:
     try:
-        return app.state.danbooru_service.remove_favorite(payload.post_id)
+        return app.state.danbooru_service.remove_favorite(payload.post_id, source=payload.source)
     except DanbooruFavoriteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except requests.RequestException as exc:
@@ -202,9 +213,12 @@ async def proxy_danbooru_image(url: str = "") -> Response:
         raise HTTPException(status_code=400, detail="缺少图片地址")
 
     parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
     if parsed.scheme not in {"http", "https"}:
         raise HTTPException(status_code=400, detail="图片地址协议不合法")
-    if parsed.netloc not in ALLOWED_DANBOORU_IMAGE_HOSTS and not parsed.netloc.endswith(".donmai.us"):
+    is_donmai = host in ALLOWED_DANBOORU_IMAGE_HOSTS or host.endswith(".donmai.us")
+    is_gelbooru = host in ALLOWED_GELBOORU_IMAGE_HOSTS or host.endswith(".gelbooru.com")
+    if not is_donmai and not is_gelbooru:
         raise HTTPException(status_code=400, detail="图片来源不受支持")
 
     try:
@@ -224,8 +238,8 @@ async def proxy_danbooru_image(url: str = "") -> Response:
 
 
 @app.get("/api/tags/autocomplete")
-async def autocomplete(query: str = "", limit: int = 20) -> list[dict]:
-    return await app.state.danbooru_service.autocomplete(query=query, limit=limit, include_translation=True)
+async def autocomplete(query: str = "", limit: int = 20, source: str = "danbooru") -> list[dict]:
+    return await app.state.danbooru_service.autocomplete(query=query, limit=limit, include_translation=True, source=source)
 
 
 @app.get("/api/tags/search-chinese")

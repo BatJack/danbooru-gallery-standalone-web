@@ -30,6 +30,10 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertEqual(data["language"], DEFAULT_SETTINGS["language"])
         self.assertEqual(data["selected_categories"], DEFAULT_SETTINGS["selected_categories"])
         self.assertEqual(data["high_quality_previews"], DEFAULT_SETTINGS["high_quality_previews"])
+        self.assertEqual(data["source_site"], "danbooru")
+        self.assertEqual(data["default_source_site"], "danbooru")
+        self.assertEqual(data["gelbooru_user_id"], "")
+        self.assertEqual(data["gelbooru_api_key"], "")
 
     def test_save_persists_known_fields_and_ignores_unknown_or_none(self) -> None:
         saved = self.service.save(
@@ -38,6 +42,7 @@ class SettingsServiceTests(unittest.TestCase):
                 "selected_categories": ["artist", "general"],
                 "high_quality_previews": False,
                 "autocomplete_max_results": 12,
+                "default_source_site": "gelbooru",
                 "unknown_key": "ignored",
                 "danbooru_api_key": None,
             }
@@ -47,6 +52,7 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertEqual(saved["selected_categories"], ["artist", "general"])
         self.assertFalse(saved["high_quality_previews"])
         self.assertEqual(saved["autocomplete_max_results"], 12)
+        self.assertEqual(saved["default_source_site"], "gelbooru")
         self.assertNotIn("unknown_key", saved)
         self.assertEqual(saved["danbooru_api_key"], DEFAULT_SETTINGS["danbooru_api_key"])
 
@@ -247,6 +253,118 @@ class DanbooruServiceTests(unittest.TestCase):
         self.assertEqual(params["tags"], "ordfav:tester")
         self.assertEqual(params["login"], "tester")
         self.assertEqual(params["api_key"], "secret")
+
+    def test_search_posts_supports_gelbooru_public_fallback(self) -> None:
+        list_response = Mock()
+        list_response.status_code = 200
+        list_response.text = """
+            <a href="index.php?page=post&amp;s=view&amp;id=42">
+                <img src="//gelbooru.com/thumbnails/ab/cd/thumb.jpg" title="1girl blue_hair rating:general">
+            </a>
+        """
+        list_response.raise_for_status.return_value = None
+
+        detail_response = Mock()
+        detail_response.status_code = 200
+        detail_response.text = """
+            <ul id="tag-list">
+                <li class="tag-type-artist"><a href="index.php?page=post&amp;s=list&amp;tags=artist_tag">artist_tag</a></li>
+                <li class="tag-type-character"><a href="index.php?page=post&amp;s=list&amp;tags=character_tag">character_tag</a></li>
+                <li class="tag-type-general"><a href="index.php?page=post&amp;s=list&amp;tags=blue_hair">blue_hair</a></li>
+            </ul>
+            <img id="image" src="//gelbooru.com/images/ab/cd/full.jpg" width="800" height="600">
+        """
+        detail_response.raise_for_status.return_value = None
+
+        with (
+            patch("app.services.danbooru_service._gelbooru_throttle.wait", return_value=None),
+            patch("app.services.danbooru_service._gelbooru_detail_throttle.wait", return_value=None),
+            patch("app.services.danbooru_service.requests.get", side_effect=[list_response, detail_response]) as get_mock,
+        ):
+            results = self.service.search_posts("1girl", limit=1, page=1, rating="general", source="gelbooru")
+
+        self.assertEqual(results[0]["id"], "42")
+        self.assertEqual(results[0]["source_site"], "gelbooru")
+        self.assertEqual(results[0]["image_width"], 800)
+        self.assertEqual(results[0]["file_url"], "https://gelbooru.com/images/ab/cd/full.jpg")
+        self.assertIn("character_tag", results[0]["tag_string_character"])
+        self.assertEqual(get_mock.call_count, 2)
+        self.assertEqual(get_mock.call_args_list[0].kwargs["params"]["pid"], 0)
+
+    def test_gelbooru_public_fallback_offsets_by_requested_batch_size(self) -> None:
+        response = Mock()
+        response.status_code = 200
+        response.text = ""
+        response.raise_for_status.return_value = None
+
+        with (
+            patch("app.services.danbooru_service._gelbooru_throttle.wait", return_value=None),
+            patch("app.services.danbooru_service.requests.get", return_value=response) as get_mock,
+        ):
+            results = self.service.search_posts("1girl", limit=20, page=2, rating="all", source="gelbooru")
+
+        self.assertEqual(results, [])
+        self.assertEqual(get_mock.call_args.kwargs["params"]["pid"], 20)
+
+    def test_gelbooru_recent_token_converts_to_id_threshold(self) -> None:
+        adapter = self.service._normalize_source("gelbooru")
+        self.assertEqual(adapter, "gelbooru")
+
+        with patch.object(self.service, "_get_gelbooru_latest_post_id", return_value=14465041):
+            result = self.service._apply_gelbooru_recent_filter(
+                "sort:score recent:7d rating:general",
+                Mock(),
+            )
+
+        self.assertEqual(result, "sort:score rating:general id:>14381041")
+
+    def test_gelbooru_authenticated_search_uses_fast_api_request(self) -> None:
+        self.settings_service.save({"gelbooru_user_id": "12345", "gelbooru_api_key": "secret"})
+        response = Mock()
+        response.status_code = 200
+        response.headers = {}
+        response.json.return_value = {
+            "post": [
+                {
+                    "id": 88,
+                    "rating": "general",
+                    "score": 5,
+                    "file_url": "https://gelbooru.com/images/a/b/full.jpg",
+                    "preview_url": "https://gelbooru.com/thumbnails/a/b/thumb.jpg",
+                    "tags": "1girl solo",
+                    "width": 1200,
+                    "height": 1600,
+                }
+            ]
+        }
+
+        with patch("app.services.danbooru_service.gelbooru_api_request", return_value=response) as request_mock:
+            results = self.service.search_posts("1girl", limit=20, page=1, rating="general", source="gelbooru")
+
+        self.assertEqual(results[0]["id"], 88)
+        self.assertEqual(results[0]["source_site"], "gelbooru")
+        params = request_mock.call_args.kwargs["params"]
+        self.assertEqual(params["user_id"], "12345")
+        self.assertEqual(params["api_key"], "secret")
+        self.assertEqual(params["tags"], "1girl rating:general")
+
+    def test_autocomplete_supports_gelbooru_public_endpoint(self) -> None:
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = [
+            {"type": "tag", "label": "1girl", "value": "1girl", "post_count": "123", "category": "tag"}
+        ]
+        response.raise_for_status.return_value = None
+
+        with patch("app.services.danbooru_service.requests.get", return_value=response) as get_mock:
+            import asyncio
+
+            results = asyncio.run(self.service.autocomplete("1girl", limit=3, source="gelbooru"))
+
+        self.assertEqual(results[0]["name"], "1girl")
+        self.assertEqual(results[0]["category"], "tag")
+        self.assertEqual(results[0]["post_count"], 123)
+        self.assertEqual(get_mock.call_args.kwargs["params"]["page"], "autocomplete2")
 
 
 if __name__ == "__main__":

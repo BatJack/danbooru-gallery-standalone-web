@@ -12,8 +12,8 @@
             <div class="brand-block">
                 <span class="brand-dot"></span>
                 <div>
-                    <p class="brand-kicker">D站画廊</p>
-                    <h1>Danbooru Gallery</h1>
+                    <p id="brand-kicker" class="brand-kicker">D站画廊</p>
+                    <h1 id="brand-title">Danbooru Gallery</h1>
                 </div>
             </div>
             <div class="header-meta">
@@ -39,6 +39,7 @@
                         <div id="search-autocomplete" class="autocomplete-list hidden"></div>
                     </div>
 
+                    <button id="source-toggle" class="toolbar-button source-toggle" type="button">Danbooru</button>
                     <button id="ranking-toggle" class="toolbar-button" type="button">排行榜</button>
                     <button id="favorites-toggle" class="toolbar-button" type="button">收藏夹</button>
 
@@ -129,6 +130,16 @@
                         <p id="selection-status" class="muted-text">点击图片进入标签编辑。</p>
                     </div>
                     <div class="sub-toolbar-fields">
+                        <label id="gelbooru-recency-field" class="mini-field gelbooru-recency-field hidden">
+                            <span>近期</span>
+                            <select id="gelbooru-recency">
+                                <option value="all">不限</option>
+                                <option value="1">约 1 天</option>
+                                <option value="7">约 7 天</option>
+                                <option value="30">约 30 天</option>
+                                <option value="90">约 90 天</option>
+                            </select>
+                        </label>
                         <label class="mini-field">
                             <span>数量</span>
                             <input id="search-limit" type="number" min="1" max="100" value="20">
@@ -302,6 +313,21 @@
                 <label class="form-field">
                     <span>Danbooru API Key</span>
                     <input id="settings-api-key" type="password">
+                </label>
+                <label class="form-field">
+                    <span>Gelbooru User ID</span>
+                    <input id="settings-gelbooru-user-id" type="text" placeholder="数字 ID，可选">
+                </label>
+                <label class="form-field">
+                    <span>Gelbooru API Key</span>
+                    <input id="settings-gelbooru-api-key" type="password">
+                </label>
+                <label class="form-field">
+                    <span>启动默认站点</span>
+                    <select id="settings-default-source-site">
+                        <option value="danbooru">Danbooru</option>
+                        <option value="gelbooru">Gelbooru</option>
+                    </select>
                 </label>
                 <label class="form-field form-field-wide">
                     <span>过滤标签</span>

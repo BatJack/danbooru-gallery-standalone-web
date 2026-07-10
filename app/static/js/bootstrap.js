@@ -1,14 +1,15 @@
 function setRankingEnabled(enabled) {
     const tokens = tokenizeCommaInput(elements.searchTags.value);
-    const filtered = tokens.filter((token) => token !== "order:rank");
+    const rankingTokens = new Set(getAllRankingTokens());
+    const filtered = tokens.filter((token) => !rankingTokens.has(token));
     if (enabled) {
-        filtered.push("order:rank");
+        filtered.push(getRankingToken());
     }
     elements.searchTags.value = buildSearchInputFromTokens(filtered);
 }
 
 function toggleRankingToken() {
-    const isRankingEnabled = tokenizeCommaInput(elements.searchTags.value).includes("order:rank");
+    const isRankingEnabled = tokenizeCommaInput(elements.searchTags.value).includes(getRankingToken());
     if (!isRankingEnabled && state.favoritesOnly) {
         state.favoritesOnly = false;
     }
@@ -23,12 +24,64 @@ async function toggleFavoritesMode() {
     if (state.favoritesOnly) {
         setRankingEnabled(false);
     }
-    if (state.favoritesOnly && hasDanbooruAuth()) {
+    if (state.favoritesOnly && hasRemoteFavoriteAuth()) {
         await syncRemoteFavorites({ silent: true });
     }
     updateSearchControlsState();
     saveUiPrefs();
     await runSearch({ resetPage: true, forceReload: true });
+}
+
+async function switchSource() {
+    const previousSource = currentSource();
+    const nextSource = currentSource() === "danbooru" ? "gelbooru" : "danbooru";
+    const hadRanking = tokenizeCommaInput(elements.searchTags.value).includes(getRankingToken(previousSource));
+    state.settings = { ...(state.settings || {}), source_site: nextSource };
+    setRankingEnabled(false);
+    if (hadRanking || !elements.searchTags.value.trim()) {
+        setRankingEnabled(true);
+    }
+    state.favoritesOnly = false;
+    state.onlineSearchCache = createEmptyOnlineSearchCache();
+    state.currentPosts = [];
+    state.searchResults = [];
+    state.originalPosts = {};
+    state.postEdits = {};
+    state.editingPostId = null;
+    state.viewingPostId = null;
+    elements.searchStatus.textContent = `正在切换到 ${currentSourceLabel()}...`;
+    updateSearchControlsState();
+    renderResults();
+    saveUiPrefs();
+    try {
+        state.settings = await api("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_site: nextSource }),
+        });
+        syncSettingsForm();
+    } catch (error) {
+        notify(`保存当前站点失败: ${error.message}`, "error");
+    }
+    await syncRemoteFavorites({ silent: true });
+    await runSearch({ resetPage: true, forceReload: true });
+}
+
+async function applyStartupSourcePreference() {
+    const startupSource = normalizeSourceKey(state.settings?.default_source_site);
+    if (currentSource() === startupSource) {
+        return;
+    }
+    state.settings = { ...(state.settings || {}), source_site: startupSource };
+    try {
+        state.settings = await api("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_site: startupSource }),
+        });
+    } catch (error) {
+        notify(`应用启动默认站点失败: ${error.message}`, "error");
+    }
 }
 
 function jumpToTypedPage() {
@@ -136,6 +189,10 @@ function bindEvents() {
         saveUiPrefs();
         runSearch({ resetPage: true });
     });
+    elements.gelbooruRecency.addEventListener("change", () => {
+        saveUiPrefs();
+        runSearch({ resetPage: true, forceReload: true });
+    });
     elements.searchPage.addEventListener("change", () => {
         jumpToTypedPage();
     });
@@ -153,6 +210,7 @@ function bindEvents() {
         goToPage((Number(elements.searchPage.value) || 1) + 1);
     });
 
+    elements.sourceToggle.addEventListener("click", switchSource);
     elements.rankingToggle.addEventListener("click", toggleRankingToken);
     elements.favoritesToggle.addEventListener("click", toggleFavoritesMode);
     elements.favoritesCountBtn.addEventListener("click", toggleFavoritesMode);
@@ -250,15 +308,20 @@ async function init() {
         replaceUnderscores: state.uiPrefs.replaceUnderscores,
         escapeBrackets: state.uiPrefs.escapeBrackets,
         limit: state.uiPrefs.limit || DEFAULT_UI_PREFS.limit,
+        gelbooruRecentDays: state.uiPrefs.gelbooruRecentDays || DEFAULT_UI_PREFS.gelbooruRecentDays,
     };
     syncUiPrefsToControls();
     updateFavoritesCount();
     updateSearchControlsState();
     bindEvents();
     await loadSettings();
+    await applyStartupSourcePreference();
     await syncRemoteFavorites({ silent: true });
     await loadLibrary();
-    elements.searchTags.value = "order:rank";
+    elements.searchTags.value = getRankingToken();
+    if (currentSource() === "gelbooru" && elements.gelbooruRecency.value === "all") {
+        elements.gelbooruRecency.value = DEFAULT_UI_PREFS.gelbooruRecentDays;
+    }
     applySelectedRatingValues([...RATING_VALUES]);
     elements.searchPage.value = "1";
     saveUiPrefs();
