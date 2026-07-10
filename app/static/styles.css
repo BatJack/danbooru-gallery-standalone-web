@@ -608,6 +608,32 @@ a {
     pointer-events: none;
 }
 
+.gallery-thumb.has-image-error,
+.viewer-body.has-image-error,
+.editor-preview-card.has-image-error {
+    position: relative;
+}
+
+.is-image-error {
+    opacity: 0.28;
+}
+
+.image-load-error {
+    position: absolute;
+    inset: 12px;
+    display: grid;
+    place-items: center;
+    z-index: 3;
+    padding: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.24);
+    border-radius: 12px;
+    background: rgba(10, 12, 16, 0.72);
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    pointer-events: none;
+}
+
 .gallery-badges {
     position: absolute;
     top: 10px;

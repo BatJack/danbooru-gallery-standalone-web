@@ -175,6 +175,79 @@ class DanbooruServiceTests(unittest.TestCase):
             "1girl order:rank ~rating:general ~rating:sensitive",
         )
 
+    def test_search_posts_uses_before_id_cursor_for_plain_queries(self) -> None:
+        response = Mock()
+        response.status_code = 200
+        response.headers = {}
+        response.json.return_value = []
+
+        with (
+            patch("app.services.danbooru_service._donmai_throttle.wait", return_value=None),
+            patch("app.services.danbooru_service.requests.request", return_value=response) as request_mock,
+        ):
+            self.service.search_posts("1girl solo", limit=20, page=3, rating="all", before_id="123456")
+
+        self.assertEqual(request_mock.call_args.kwargs["params"]["page"], "b123456")
+
+    def test_search_posts_ignores_before_id_for_ordered_queries(self) -> None:
+        response = Mock()
+        response.status_code = 200
+        response.headers = {}
+        response.json.return_value = []
+
+        with (
+            patch("app.services.danbooru_service._donmai_throttle.wait", return_value=None),
+            patch("app.services.danbooru_service.requests.request", return_value=response) as request_mock,
+        ):
+            self.service.search_posts("1girl order:rank", limit=20, page=3, rating="all", before_id="123456")
+
+        self.assertEqual(request_mock.call_args.kwargs["params"]["page"], 3)
+
+    def test_favorite_mutations_include_auth_query_params(self) -> None:
+        self.settings_service.save({"danbooru_username": "tester", "danbooru_api_key": "secret"})
+
+        add_response = Mock()
+        add_response.status_code = 201
+        add_response.headers = {}
+        remove_response = Mock()
+        remove_response.status_code = 204
+        remove_response.headers = {}
+
+        with (
+            patch("app.services.danbooru_service._donmai_throttle.wait", return_value=None),
+            patch(
+                "app.services.danbooru_service.requests.request",
+                side_effect=[add_response, remove_response],
+            ) as request_mock,
+        ):
+            self.service.add_favorite(1001)
+            self.service.remove_favorite(1001)
+
+        add_kwargs = request_mock.call_args_list[0].kwargs
+        remove_kwargs = request_mock.call_args_list[1].kwargs
+        self.assertEqual(add_kwargs["params"], {"login": "tester", "api_key": "secret"})
+        self.assertEqual(remove_kwargs["params"], {"login": "tester", "api_key": "secret"})
+        self.assertEqual(add_kwargs["data"], {"post_id": 1001})
+
+    def test_sync_favorites_include_auth_query_params(self) -> None:
+        self.settings_service.save({"danbooru_username": "tester", "danbooru_api_key": "secret"})
+
+        response = Mock()
+        response.status_code = 200
+        response.headers = {}
+        response.json.return_value = []
+
+        with (
+            patch("app.services.danbooru_service._donmai_throttle.wait", return_value=None),
+            patch("app.services.danbooru_service.requests.request", return_value=response) as request_mock,
+        ):
+            self.service.sync_favorite_ids(page_limit=50, max_pages=1)
+
+        params = request_mock.call_args.kwargs["params"]
+        self.assertEqual(params["tags"], "ordfav:tester")
+        self.assertEqual(params["login"], "tester")
+        self.assertEqual(params["api_key"], "secret")
+
 
 if __name__ == "__main__":
     unittest.main()

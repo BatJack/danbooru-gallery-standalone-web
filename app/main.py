@@ -34,6 +34,20 @@ logger = get_logger(__name__)
 ensure_seed_data()
 
 ALLOWED_DANBOORU_IMAGE_HOSTS = {"cdn.donmai.us", "danbooru.donmai.us"}
+IMAGE_PROXY_CONCURRENCY = 2
+IMAGE_PROXY_MEDIA_PREFIXES = ("image/", "video/")
+IMAGE_PROXY_ALLOWED_MEDIA_TYPES = {"application/octet-stream"}
+_image_proxy_semaphore: asyncio.Semaphore | None = None
+_image_proxy_semaphore_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_image_proxy_semaphore() -> asyncio.Semaphore:
+    global _image_proxy_semaphore, _image_proxy_semaphore_loop
+    loop = asyncio.get_running_loop()
+    if _image_proxy_semaphore is None or _image_proxy_semaphore_loop is not loop:
+        _image_proxy_semaphore = asyncio.Semaphore(IMAGE_PROXY_CONCURRENCY)
+        _image_proxy_semaphore_loop = loop
+    return _image_proxy_semaphore
 
 
 @asynccontextmanager
@@ -90,9 +104,16 @@ def _fetch_remote_image(image_url: str) -> tuple[bytes, str, str]:
         timeout=20,
     )
     response.raise_for_status()
+    media_type = response.headers.get("content-type", "application/octet-stream")
+    normalized_media_type = media_type.split(";", 1)[0].strip().lower()
+    if normalized_media_type and (
+        normalized_media_type not in IMAGE_PROXY_ALLOWED_MEDIA_TYPES
+        and not normalized_media_type.startswith(IMAGE_PROXY_MEDIA_PREFIXES)
+    ):
+        raise ValueError(f"upstream returned non-media content: {media_type}")
     return (
         response.content,
-        response.headers.get("content-type", "application/octet-stream"),
+        media_type,
         response.headers.get("cache-control", "public, max-age=3600"),
     )
 
@@ -124,8 +145,20 @@ async def update_settings(payload: SettingsUpdateRequest) -> dict:
 
 
 @app.get("/api/danbooru/posts")
-async def get_posts(tags: str = "", limit: int = 20, page: int = 1, rating: str = "all") -> list[dict]:
-    return app.state.danbooru_service.search_posts(tags=tags, limit=min(limit, 100), page=page, rating=rating)
+async def get_posts(
+    tags: str = "",
+    limit: int = 20,
+    page: int = 1,
+    rating: str = "all",
+    before_id: str = "",
+) -> list[dict]:
+    return app.state.danbooru_service.search_posts(
+        tags=tags,
+        limit=min(limit, 100),
+        page=page,
+        rating=rating,
+        before_id=before_id,
+    )
 
 
 @app.get("/api/danbooru/auth")
@@ -175,9 +208,13 @@ async def proxy_danbooru_image(url: str = "") -> Response:
         raise HTTPException(status_code=400, detail="图片来源不受支持")
 
     try:
-        content, media_type, cache_control = await asyncio.to_thread(_fetch_remote_image, url)
+        async with _get_image_proxy_semaphore():
+            content, media_type, cache_control = await asyncio.to_thread(_fetch_remote_image, url)
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"图片获取失败: {exc}") from exc
+    except ValueError as exc:
+        logger.warning(f"[ImageProxy] {exc}: {url}")
+        raise HTTPException(status_code=502, detail="图片代理返回了非媒体内容") from exc
 
     return Response(
         content=content,

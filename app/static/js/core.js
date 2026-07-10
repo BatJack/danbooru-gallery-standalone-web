@@ -305,6 +305,7 @@ function createEmptyOnlineSearchCache(key = "") {
         key,
         filteredPosts: [],
         nextServerPage: 1,
+        lastServerPostId: null,
         rawFetched: 0,
         filteredOut: 0,
         exhausted: false,
@@ -534,7 +535,15 @@ function buildOnlineQueryContext() {
         limit,
         page,
         batchSize: Math.min(ONLINE_BATCH_MAX, Math.max(ONLINE_BATCH_MIN, limit * ONLINE_BATCH_MULTIPLIER)),
+        supportsCursor: canUseCursorPagination(tags),
     };
+}
+
+function canUseCursorPagination(tags) {
+    return !String(tags || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .some((token) => token.startsWith("order:") || token.startsWith("ordfav:") || token.startsWith("sort:"));
 }
 
 function buildSearchInputFromTokens(tokens) {
@@ -690,18 +699,70 @@ function buildImageCandidates(post, options = {}) {
     return [...new Set(raw.filter(Boolean).map(proxyImageUrl).filter(Boolean))];
 }
 
+function addImageRetryParam(url) {
+    if (!url) {
+        return "";
+    }
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}_retry=${Date.now()}`;
+}
+
+function imageStatusContainer(img) {
+    return img.closest(".gallery-thumb, .viewer-body, .editor-preview-card") || img.parentElement;
+}
+
+function clearImageLoadError(img) {
+    const container = imageStatusContainer(img);
+    container?.classList.remove("has-image-error");
+    container?.querySelector(".image-load-error")?.remove();
+    img.classList.remove("is-image-error");
+    img.removeAttribute("title");
+}
+
+function showImageLoadError(img) {
+    const container = imageStatusContainer(img);
+    img.classList.add("is-image-error");
+    img.title = "图片加载失败";
+    if (!container) {
+        return;
+    }
+    container.classList.add("has-image-error");
+    if (!container.querySelector(".image-load-error")) {
+        const hint = document.createElement("span");
+        hint.className = "image-load-error";
+        hint.textContent = "图片加载失败";
+        container.appendChild(hint);
+    }
+}
+
 function setImageSource(img, post, options = {}) {
     const candidates = buildImageCandidates(post, options);
     let index = 0;
+    let retriedCurrent = false;
     img.loading = options.preferLarge ? "eager" : "lazy";
     img.decoding = "async";
+    clearImageLoadError(img);
+    img.onload = () => {
+        clearImageLoadError(img);
+    };
     img.onerror = () => {
+        if (!retriedCurrent && candidates[index]) {
+            retriedCurrent = true;
+            img.src = addImageRetryParam(candidates[index]);
+            return;
+        }
         index += 1;
+        retriedCurrent = false;
         if (index < candidates.length) {
             img.src = candidates[index];
+            return;
         }
+        showImageLoadError(img);
     };
     img.src = candidates[index] || "";
+    if (!candidates.length) {
+        showImageLoadError(img);
+    }
 }
 
 function syncToolbarFromSettings() {
@@ -813,6 +874,9 @@ async function fetchOnlineBatch(query, serverPage) {
         limit: String(query.batchSize),
         page: String(serverPage),
     });
+    if (query.supportsCursor && state.onlineSearchCache.lastServerPostId) {
+        params.set("before_id", String(state.onlineSearchCache.lastServerPostId));
+    }
     const results = await api(`/api/danbooru/posts?${params.toString()}`);
     return Array.isArray(results) ? results : [];
 }
@@ -831,6 +895,10 @@ async function ensureOnlineResults(query, forceReload = false) {
         }
 
         rememberOriginalPosts(batch);
+        const lastPost = batch[batch.length - 1];
+        if (query.supportsCursor && lastPost?.id) {
+            cache.lastServerPostId = String(lastPost.id);
+        }
         const filteredBatch = applyOnlineFilters(batch);
         cache.filteredOut += Math.max(batch.length - filteredBatch.length, 0);
         for (const post of filteredBatch) {

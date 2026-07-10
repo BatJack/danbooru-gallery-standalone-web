@@ -144,11 +144,29 @@ class DanbooruService:
                 values.append(normalized)
         return values
 
-    def _require_auth(self) -> tuple[str, HTTPBasicAuth]:
+    @staticmethod
+    def _normalize_before_id(before_id: str | int | None) -> str:
+        if before_id is None:
+            return ""
+        value = str(before_id).strip()
+        return value if value.isdigit() else ""
+
+    @staticmethod
+    def _can_use_before_id(tags: str) -> bool:
+        for token in str(tags or "").split():
+            if token.startswith(("order:", "ordfav:", "sort:")):
+                return False
+        return True
+
+    @staticmethod
+    def _auth_query_params(username: str, api_key: str) -> dict[str, str]:
+        return {"login": username, "api_key": api_key}
+
+    def _require_auth(self) -> tuple[str, str, HTTPBasicAuth]:
         username, api_key = self._credentials()
         if not username or not api_key:
             raise DanbooruFavoriteError("请先在设置中配置 Danbooru 用户名和 API Key", status_code=401)
-        return username, HTTPBasicAuth(username, api_key)
+        return username, api_key, HTTPBasicAuth(username, api_key)
 
     def _select_prompt_tags(self, post: dict) -> list[str]:
         settings = self.settings_service.load()
@@ -168,7 +186,14 @@ class DanbooruService:
                 selected.append(tag)
         return selected
 
-    def search_posts(self, tags: str, limit: int, page: int, rating: str | None) -> list[dict]:
+    def search_posts(
+        self,
+        tags: str,
+        limit: int,
+        page: int,
+        rating: str | None,
+        before_id: str | int | None = None,
+    ) -> list[dict]:
         search_tags: list[str] = []
         date_tag = None
         for raw_tag in tags.split():
@@ -185,10 +210,15 @@ class DanbooruService:
         elif len(rating_values) > 1:
             search_tags.extend(f"~rating:{value}" for value in rating_values)
 
+        cursor = self._normalize_before_id(before_id)
+        if cursor and not self._can_use_before_id(tags):
+            cursor = ""
+        page_param: int | str = f"b{cursor}" if cursor else page
+
         response = danbooru_request(
             "GET",
             f"{BASE_URL}/posts.json",
-            params={"tags": " ".join(search_tags), "limit": limit, "page": page},
+            params={"tags": " ".join(search_tags), "limit": limit, "page": page_param},
             auth=self._auth(),
             timeout=20,
         )
@@ -223,10 +253,11 @@ class DanbooruService:
         return results
 
     def add_favorite(self, post_id: int) -> dict:
-        _, auth = self._require_auth()
+        username, api_key, auth = self._require_auth()
         response = danbooru_request(
             "POST",
             f"{BASE_URL}/favorites.json",
+            params=self._auth_query_params(username, api_key),
             auth=auth,
             data={"post_id": post_id},
             timeout=15,
@@ -250,10 +281,11 @@ class DanbooruService:
         )
 
     def remove_favorite(self, post_id: int) -> dict:
-        _, auth = self._require_auth()
+        username, api_key, auth = self._require_auth()
         response = danbooru_request(
             "DELETE",
             f"{BASE_URL}/favorites/{post_id}.json",
+            params=self._auth_query_params(username, api_key),
             auth=auth,
             timeout=15,
         )
@@ -272,7 +304,7 @@ class DanbooruService:
         )
 
     def sync_favorite_ids(self, *, page_limit: int = 200, max_pages: int = 10) -> dict:
-        username, auth = self._require_auth()
+        username, api_key, auth = self._require_auth()
         favorite_ids: list[str] = []
         truncated = False
 
@@ -280,7 +312,12 @@ class DanbooruService:
             response = danbooru_request(
                 "GET",
                 f"{BASE_URL}/posts.json",
-                params={"tags": f"ordfav:{username}", "limit": page_limit, "page": page},
+                params={
+                    "tags": f"ordfav:{username}",
+                    "limit": page_limit,
+                    "page": page,
+                    **self._auth_query_params(username, api_key),
+                },
                 auth=auth,
                 timeout=20,
             )
