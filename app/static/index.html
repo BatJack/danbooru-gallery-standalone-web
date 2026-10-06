@@ -4,9 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Danbooru Gallery Standalone</title>
+    <meta name="description" content="浏览 Danbooru 与 Gelbooru 作品，整理并复制干净的 Prompt 标签。">
+    <meta name="theme-color" content="#fbf5e9">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23ffc93c'/><rect x='4' y='4' width='24' height='24' rx='6' fill='none' stroke='%231b1712' stroke-width='2'/><circle cx='16' cy='16' r='4.5' fill='%231b1712'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&amp;family=Nunito:wght@400;500;600;700;800&amp;display=swap">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
     <div class="app-shell">
         <header class="app-header">
             <div class="brand-block">
@@ -24,7 +31,7 @@
             </div>
         </header>
 
-        <main class="workspace-shell">
+        <main id="main-content" class="workspace-shell">
             <section class="gallery-panel">
                 <div class="toolbar-row">
                     <div class="search-wrap autocomplete-field">
