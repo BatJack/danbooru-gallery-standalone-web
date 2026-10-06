@@ -3239,3 +3239,122 @@ p {
     }
 }
 
+/* Superr redesign: uniform gallery rows and a bottom pager bar. */
+
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: stretch;
+    align-content: start;
+    column-gap: 16px;
+    row-gap: 16px;
+}
+
+.gallery-grid > .library-content-empty {
+    grid-column: 1 / -1;
+    align-self: start;
+}
+
+.gallery-grid > .gallery-card {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+}
+
+/* Every thumbnail keeps the same 3:4 box so a row reads as one even strip;
+   mixed-size source images are scaled down to fit inside it without cropping,
+   the leftover space showing the warm paper backdrop. */
+.gallery-grid .gallery-thumb {
+    flex: 0 0 auto;
+    min-height: 0;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+}
+
+.gallery-grid .gallery-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    object-fit: contain;
+    object-position: center;
+}
+
+.gallery-grid > .gallery-card .gallery-card-footer {
+    flex: 1 1 auto;
+}
+
+/* Pager moved out of the sub-toolbar to sit under the results, kept in the
+   Superr sticker language: paper capsule, ink edge, hard shadow, yellow jump. */
+.pager-footer {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+}
+
+.pager-footer .pager-controls {
+    align-items: end;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #fffdf7;
+    border: 1.5px solid var(--panel-border-soft);
+    border-radius: 999px;
+    box-shadow: 0 3px 0 rgba(27, 23, 18, 0.08);
+}
+
+.pager-footer .pager-button {
+    border-radius: 999px;
+}
+
+.pager-footer .pager-jump-button {
+    padding: 0 18px;
+    background: var(--accent);
+    border: 1.5px solid var(--text);
+    color: var(--text);
+    font-weight: 800;
+    box-shadow: 0 3px 0 var(--text);
+}
+
+.pager-footer .pager-jump-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    background: var(--accent-strong);
+    border-color: var(--text);
+    box-shadow: 0 5px 0 var(--text);
+}
+
+.pager-footer .pager-jump-button:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 var(--text);
+}
+
+@media (max-width: 1480px) {
+    .gallery-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1180px) {
+    .gallery-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .gallery-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 580px) {
+    .gallery-grid {
+        grid-template-columns: minmax(0, 1fr);
+        column-gap: 12px;
+        row-gap: 12px;
+    }
+
+    .pager-footer .pager-controls {
+        width: 100%;
+        justify-content: center;
+    }
+}
+

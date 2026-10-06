@@ -151,19 +151,22 @@
                             <span>数量</span>
                             <input id="search-limit" type="number" min="1" max="100" value="20">
                         </label>
-                        <div class="pager-controls">
-                            <button id="prev-page-btn" class="pager-button" type="button" title="上一页">←</button>
-                            <label class="mini-field">
-                                <span>页码</span>
-                                <input id="search-page" type="number" min="1" value="1" inputmode="numeric">
-                            </label>
-                            <button id="jump-page-btn" class="pager-button pager-jump-button" type="button" title="跳转到输入页">跳转</button>
-                            <button id="next-page-btn" class="pager-button" type="button" title="下一页">→</button>
-                        </div>
                     </div>
                 </div>
 
                 <div id="results-grid" class="gallery-grid"></div>
+
+                <div class="pager-footer">
+                    <div class="pager-controls">
+                        <button id="prev-page-btn" class="pager-button" type="button" title="上一页">←</button>
+                        <label class="mini-field">
+                            <span>页码</span>
+                            <input id="search-page" type="number" min="1" value="1" inputmode="numeric">
+                        </label>
+                        <button id="jump-page-btn" class="pager-button pager-jump-button" type="button" title="跳转到输入页">跳转</button>
+                        <button id="next-page-btn" class="pager-button" type="button" title="下一页">→</button>
+                    </div>
+                </div>
             </section>
         </main>
     </div>
