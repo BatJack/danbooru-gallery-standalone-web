@@ -44,22 +44,12 @@ assets/
 .nojekyll
 ```
 
-Two ways to publish:
+Publishing goes straight from the branch — there is no build step and no CI workflow:
 
-#### Option A: GitHub Actions (recommended)
-
-A workflow is included at `.github/workflows/deploy-pages.yml`. It assembles only the site files into `_site/` and deploys them.
-
-1. Push this branch to GitHub.
+1. Push the `github-pages` branch to GitHub.
 2. In the repository, open **Settings → Pages**.
-3. Set **Source** to **GitHub Actions**.
-4. Push to `main` (or `github-pages`), or run the workflow manually from the **Actions** tab.
-
-#### Option B: Deploy from a branch
-
-1. In **Settings → Pages**, set **Source** to **Deploy from a branch**.
-2. Pick the branch you want to publish and the root folder (`/`).
-3. Save; the site is served at `https://<user>.github.io/<repo>/`.
+3. Set **Source** to **Deploy from a branch**, then choose branch **`github-pages`** and folder **`/ (root)`**.
+4. Save; the site is served at `https://<user>.github.io/<repo>/`.
 
 All asset paths are relative, so the site works both at a domain root and under a `/repo/` project path.
 
@@ -98,8 +88,6 @@ Opening `index.html` directly also works in most browsers, though a local server
   Frontend modules. `store.js` replaces the old backend (settings, library, `/api` router); `gallery-api.js` talks to Danbooru/Gelbooru; `translations.js` and `prompt-clean.js` are browser ports of the Python helpers.
 - `assets/`
   Bundled Chinese tag translations and the default prompt library.
-- `.github/workflows/deploy-pages.yml`
-  GitHub Pages deployment workflow.
 - `docs/images/`
   README screenshots.
 
@@ -149,22 +137,12 @@ assets/
 .nojekyll
 ```
 
-两种发布方式：
+直接由分支发布，没有构建步骤，也没有 CI 工作流：
 
-#### 方式 A：GitHub Actions（推荐）
-
-仓库已包含 `.github/workflows/deploy-pages.yml`，它只把站点文件收集到 `_site/` 后发布。
-
-1. 把本分支推送到 GitHub。
+1. 把 `github-pages` 分支推送到 GitHub。
 2. 打开仓库 **Settings → Pages**。
-3. 将 **Source** 设为 **GitHub Actions**。
-4. 推送到 `main`（或 `github-pages`），或在 **Actions** 页手动运行工作流。
-
-#### 方式 B：从分支发布
-
-1. 在 **Settings → Pages** 中把 **Source** 设为 **Deploy from a branch**。
-2. 选择要发布的分支与根目录（`/`）。
-3. 保存后站点地址为 `https://<user>.github.io/<repo>/`。
+3. 将 **Source** 设为 **Deploy from a branch**，分支选 **`github-pages`**，目录选 **`/ (root)`**。
+4. 保存后站点地址为 `https://<user>.github.io/<repo>/`。
 
 所有资源路径均为相对路径，因此无论部署在域名根目录还是 `/repo/` 子路径都能正常访问。
 
@@ -203,8 +181,6 @@ python -m http.server 8000
   前端模块。`store.js` 取代原后端（设置、词库、`/api` 路由）；`gallery-api.js` 负责请求 Danbooru/Gelbooru；`translations.js`、`prompt-clean.js` 是原 Python 工具的浏览器移植版
 - `assets/`
   内置的中文标签翻译与默认词库
-- `.github/workflows/deploy-pages.yml`
-  GitHub Pages 部署工作流
 - `docs/images/`
   README 展示截图
 
