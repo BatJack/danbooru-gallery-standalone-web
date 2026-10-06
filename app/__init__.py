@@ -1,1 +1,0 @@
-"""Standalone Danbooru Gallery application."""
